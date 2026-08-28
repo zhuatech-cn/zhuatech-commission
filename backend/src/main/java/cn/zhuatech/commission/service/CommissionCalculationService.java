@@ -3,6 +3,7 @@ package cn.zhuatech.commission.service;
 
 import cn.zhuatech.commission.model.*;
 import cn.zhuatech.commission.repository.*;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -14,9 +15,11 @@ import java.util.*;
 
 @Service
 public class CommissionCalculationService {
-    private final CommissionRunRepository runs;private final AuditLogRepository audits;
-    public CommissionCalculationService(CommissionRunRepository runs,AuditLogRepository audits){
-        this.runs=runs;this.audits=audits;
+    private final CommissionRunRepository runs;private final CommissionAllocationRepository allocations;
+    private final AuditLogRepository audits;
+    public CommissionCalculationService(CommissionRunRepository runs,CommissionAllocationRepository allocations,
+            AuditLogRepository audits){
+        this.runs=runs;this.allocations=allocations;this.audits=audits;
     }
     public List<CommissionRun> list(){return runs.findAllByOrderByUpdatedAtDesc();}
 
@@ -39,8 +42,29 @@ public class CommissionCalculationService {
             .max(BigDecimal.ZERO).multiply(item.getAcceleratorRate())
             .divide(new BigDecimal("100"),2,RoundingMode.HALF_UP);
         BigDecimal gross=base.add(accelerated);BigDecimal payable=gross.min(item.getCapAmount());
-        item.calculate(payable);audit("执行佣金计算",item,"毛额="+gross+", 应付="+payable);
+        item.calculate(payable);allocations.deleteByRunId(id);
+        allocations.save(new CommissionAllocation(id,item.getBeneficiary(),new BigDecimal("100.00"),payable));
+        audit("执行佣金计算",item,"毛额="+gross+", 应付="+payable);
         return new CalculationResult(item,gross,payable,gross.compareTo(item.getCapAmount())>0);
+    }
+
+    public List<CommissionAllocation> allocations(Long id){get(id);return allocations.findByRunIdOrderByCreditPercentDesc(id);}
+
+    @Transactional
+    public List<CommissionAllocation> allocate(Long id,AllocationRequest request){
+        var item=get(id);require(item,"CALCULATED","仅已计算批次允许调整归属分配");
+        Set<String> names=new HashSet<>();BigDecimal total=request.lines().stream()
+            .peek(line->{if(!names.add(line.beneficiary()))throw conflict("受益人不能重复");})
+            .map(AllocationLine::creditPercent).reduce(BigDecimal.ZERO,BigDecimal::add);
+        if(total.compareTo(new BigDecimal("100.00"))!=0)throw conflict("归属比例合计必须等于100%");
+        allocations.deleteByRunId(id);List<CommissionAllocation> saved=new ArrayList<>();BigDecimal assigned=BigDecimal.ZERO;
+        for(int i=0;i<request.lines().size();i++){
+            var line=request.lines().get(i);BigDecimal amount=i==request.lines().size()-1
+                ?item.getCalculatedAmount().subtract(assigned)
+                :item.getCalculatedAmount().multiply(line.creditPercent()).divide(new BigDecimal("100"),2,RoundingMode.HALF_UP);
+            assigned=assigned.add(amount);saved.add(allocations.save(new CommissionAllocation(id,line.beneficiary(),line.creditPercent(),amount)));
+        }
+        audit("调整佣金归属",item,"受益人 "+saved.size()+" 名，比例合计100%");return saved;
     }
 
     @Transactional
@@ -50,6 +74,10 @@ public class CommissionCalculationService {
         if(!item.isDataLocked())throw conflict("业绩数据尚未锁定");
         if(!item.isComplianceChecked())throw conflict("合规检查尚未通过");
         if(item.getDisputedItems()>0)throw conflict("仍有佣金归属争议未解决");
+        var lines=allocations(id);BigDecimal percent=lines.stream().map(CommissionAllocation::getCreditPercent).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal amount=lines.stream().map(CommissionAllocation::getPayableAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
+        if(lines.isEmpty()||percent.compareTo(new BigDecimal("100.00"))!=0
+                ||amount.compareTo(item.getCalculatedAmount())!=0)throw conflict("佣金归属分配不完整");
         item.submit();audit("提交佣金复核",item,"控制门禁全部通过");return item;
     }
 
@@ -97,6 +125,9 @@ public class CommissionCalculationService {
         @NotNull @Positive BigDecimal capAmount,@PositiveOrZero int disputedItems,
         boolean planApproved,boolean dataLocked,boolean complianceChecked){}
     public record ClawbackRequest(@NotNull @Positive BigDecimal amount,@NotBlank @Size(max=300) String reason){}
+    public record AllocationRequest(@NotEmpty @Size(max=50) List<@Valid AllocationLine> lines){}
+    public record AllocationLine(@NotBlank @Size(max=60) String beneficiary,
+        @NotNull @DecimalMin(value="0",inclusive=false) @DecimalMax("100") BigDecimal creditPercent){}
     public record CalculationResult(CommissionRun run,BigDecimal grossAmount,BigDecimal payableAmount,boolean capped){}
     public record Dashboard(long total,long pendingReview,long paid,BigDecimal calculatedAmount,BigDecimal clawbackAmount){}
 }

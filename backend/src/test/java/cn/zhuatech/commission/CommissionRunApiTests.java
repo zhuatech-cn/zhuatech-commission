@@ -74,6 +74,27 @@ class CommissionRunApiTests {
             .andExpect(status().isConflict());
     }
 
+    @Test
+    void calculatedCommissionSupportsValidatedMultiBeneficiaryAllocation() throws Exception {
+        long id=create("COMM-RUN-SPLIT",800000,3,500000,5,60000,0,true,true,true);
+        mvc.perform(post("/api/commission/runs/{id}/calculate",id).with(httpBasic("operator","operator123")))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/commission/runs/{id}/allocations",id).with(httpBasic("operator","operator123")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(1))
+            .andExpect(jsonPath("$.data[0].creditPercent").value(100));
+        mvc.perform(put("/api/commission/runs/{id}/allocations",id).with(httpBasic("operator","operator123"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lines\":[{\"beneficiary\":\"客户经理A\",\"creditPercent\":60},{\"beneficiary\":\"售前顾问B\",\"creditPercent\":40}]}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(2))
+            .andExpect(jsonPath("$.data[0].payableAmount").value(18000));
+        mvc.perform(put("/api/commission/runs/{id}/allocations",id).with(httpBasic("operator","operator123"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"lines\":[{\"beneficiary\":\"客户经理A\",\"creditPercent\":80}]}"))
+            .andExpect(status().isConflict());
+        mvc.perform(post("/api/commission/runs/{id}/submit",id).with(httpBasic("operator","operator123")))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.state").value("PENDING_REVIEW"));
+    }
+
     private long create(String no,double revenue,double base,double threshold,double accelerator,double cap,
             int disputes,boolean approved,boolean locked,boolean compliance)throws Exception{
         var result=mvc.perform(post("/api/commission/runs").with(httpBasic("operator","operator123"))

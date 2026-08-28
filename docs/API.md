@@ -18,6 +18,7 @@
 | POST | `/domain/decision` | 执行企业佣金与销售激励管理系统专属领域规则 |
 | GET/POST | `/commission/runs` | 佣金批次查询与创建 |
 | POST | `/commission/runs/{id}/calculate` | 执行阶梯、加速和封顶计算 |
+| GET / PUT | `/commission/runs/{id}/allocations` | 查询或调整多人佣金归属 |
 | POST | `/commission/runs/{id}/submit` | 通过治理门禁后提交复核 |
 | POST | `/admin/commission/runs/{id}/approve` | 管理员批准佣金结果 |
 | POST | `/commission/runs/{id}/payout` | 登记佣金发放回执 |
