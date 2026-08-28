@@ -16,6 +16,12 @@
 | GET | `/records/export.csv` | 导出 UTF-8 CSV |
 | GET | `/sla-summary` | SLA、逾期、风险和人员工作量 |
 | POST | `/domain/decision` | 执行企业佣金与销售激励管理系统专属领域规则 |
+| GET/POST | `/commission/runs` | 佣金批次查询与创建 |
+| POST | `/commission/runs/{id}/calculate` | 执行阶梯、加速和封顶计算 |
+| POST | `/commission/runs/{id}/submit` | 通过治理门禁后提交复核 |
+| POST | `/admin/commission/runs/{id}/approve` | 管理员批准佣金结果 |
+| POST | `/commission/runs/{id}/payout` | 登记佣金发放回执 |
+| POST | `/commission/runs/{id}/clawback` | 执行受余额限制的佣金追索 |
 | GET/POST | `/enterprise/controls` | 企业控制项查询与幂等创建 |
 | GET | `/enterprise/workbench` | 按组织与账期查询治理驾驶舱 |
 | GET | `/enterprise/period-status` | 查询组织账期锁定状态 |
